@@ -16,6 +16,8 @@ export interface ConsoleMessageData {
  * Per-page console message tracking.
  * Attach to a page to capture all console output.
  */
+const MAX_MESSAGES = 1000;
+
 export class ConsoleCollector {
   private messages: ConsoleMessageData[] = [];
   private nextId = 1;
@@ -28,6 +30,9 @@ export class ConsoleCollector {
     this.page = page;
 
     this.onConsole = (msg: ConsoleMessage) => {
+      if (this.messages.length >= MAX_MESSAGES) {
+        this.messages.shift();
+      }
       const loc = msg.location();
       this.messages.push({
         id: `msg_${this.nextId++}`,

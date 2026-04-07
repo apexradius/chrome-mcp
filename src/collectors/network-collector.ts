@@ -20,6 +20,9 @@ export interface RequestData {
  * Per-page network request tracking.
  * Attach to a page to capture all network requests and responses.
  */
+const MAX_REQUESTS = 500;
+const MAX_BODY_SIZE = 512 * 1024; // 512KB
+
 export class NetworkCollector {
   private requests = new Map<string, RequestData>();
   private nextId = 1;
@@ -42,6 +45,12 @@ export class NetworkCollector {
       const rawHeaders = req.headers();
       for (const key of Object.keys(rawHeaders)) {
         headers[key] = rawHeaders[key]!;
+      }
+
+      // Evict oldest if at capacity
+      if (this.requests.size >= MAX_REQUESTS) {
+        const oldest = this.requests.keys().next().value;
+        if (oldest) this.requests.delete(oldest);
       }
 
       this.requests.set(id, {
@@ -81,12 +90,14 @@ export class NetworkCollector {
       data.endTime = Date.now();
       data.duration = data.endTime - data.startTime;
 
-      // Try to capture response body for text-based resources
-      res.text().then((body) => {
-        data.responseBody = body;
-      }).catch(() => {
-        // Body not available (e.g. redirects, binary)
-      });
+      // Capture response body for text-based resources, with size limit
+      const contentType = headers["content-type"] ?? "";
+      const isText = contentType.includes("text") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("javascript");
+      if (isText) {
+        res.text().then((body) => {
+          data.responseBody = body.length > MAX_BODY_SIZE ? body.slice(0, MAX_BODY_SIZE) + "\n[truncated]" : body;
+        }).catch(() => {});
+      }
     };
 
     this.onRequestFailed = (req: HTTPRequest) => {

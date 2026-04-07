@@ -6,6 +6,7 @@ import { findChrome } from "./finder.js";
 import { ensureProfileDir, getProfileDir } from "./profile.js";
 import { applyStealth } from "./stealth.js";
 import { Mutex } from "../browser/mutex.js";
+import { clearSnapshot } from "../browser/page-state.js";
 
 interface DialogInfo {
   type: string;
@@ -175,6 +176,7 @@ export class ChromeClient {
     page.on("close", () => {
       this.pages.delete(pageId);
       this.tabMutexes.delete(pageId);
+      clearSnapshot(pageId);
       if (this.selectedPageId === pageId) {
         // Select the most recent remaining page
         const ids = Array.from(this.pages.keys());
