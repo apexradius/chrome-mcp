@@ -12,18 +12,12 @@ export interface ConsoleMessageData {
   } | null;
 }
 
-/**
- * Per-page console message tracking.
- * Attach to a page to capture all console output.
- */
 const MAX_MESSAGES = 1000;
 
 export class ConsoleCollector {
   private messages: ConsoleMessageData[] = [];
   private nextId = 1;
   private page: Page;
-
-  // Bound handler for cleanup
   private onConsole: (msg: ConsoleMessage) => void;
 
   constructor(page: Page) {
@@ -52,9 +46,6 @@ export class ConsoleCollector {
     this.page.on("console", this.onConsole);
   }
 
-  /**
-   * Return all captured messages, optionally filtered by type.
-   */
   getMessages(type?: string): ConsoleMessageData[] {
     if (type) {
       return this.messages.filter((m) => m.type === type);
@@ -62,23 +53,14 @@ export class ConsoleCollector {
     return [...this.messages];
   }
 
-  /**
-   * Return full message details by ID.
-   */
   getMessage(id: string): ConsoleMessageData | null {
     return this.messages.find((m) => m.id === id) ?? null;
   }
 
-  /**
-   * Reset for new navigation.
-   */
   clear(): void {
     this.messages = [];
   }
 
-  /**
-   * Remove event listeners.
-   */
   dispose(): void {
     this.page.off("console", this.onConsole);
     this.messages = [];

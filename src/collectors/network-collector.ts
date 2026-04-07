@@ -16,12 +16,16 @@ export interface RequestData {
   failure: string | null;
 }
 
-/**
- * Per-page network request tracking.
- * Attach to a page to capture all network requests and responses.
- */
 const MAX_REQUESTS = 500;
 const MAX_BODY_SIZE = 512 * 1024; // 512KB
+
+function normalizeHeaders(raw: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const key of Object.keys(raw)) {
+    headers[key] = raw[key]!;
+  }
+  return headers;
+}
 
 export class NetworkCollector {
   private requests = new Map<string, RequestData>();
@@ -29,7 +33,6 @@ export class NetworkCollector {
   private page: Page;
   private requestIdMap = new WeakMap<HTTPRequest, string>();
 
-  // Bound handlers for cleanup
   private onRequest: (req: HTTPRequest) => void;
   private onResponse: (res: HTTPResponse) => void;
   private onRequestFailed: (req: HTTPRequest) => void;
@@ -41,13 +44,6 @@ export class NetworkCollector {
       const id = `req_${this.nextId++}`;
       this.requestIdMap.set(req, id);
 
-      const headers: Record<string, string> = {};
-      const rawHeaders = req.headers();
-      for (const key of Object.keys(rawHeaders)) {
-        headers[key] = rawHeaders[key]!;
-      }
-
-      // Evict oldest if at capacity
       if (this.requests.size >= MAX_REQUESTS) {
         const oldest = this.requests.keys().next().value;
         if (oldest) this.requests.delete(oldest);
@@ -60,7 +56,7 @@ export class NetworkCollector {
         resourceType: req.resourceType(),
         status: null,
         statusText: null,
-        requestHeaders: headers,
+        requestHeaders: normalizeHeaders(req.headers()),
         responseHeaders: null,
         startTime: Date.now(),
         endTime: null,
@@ -78,20 +74,13 @@ export class NetworkCollector {
       const data = this.requests.get(id);
       if (!data) return;
 
-      const headers: Record<string, string> = {};
-      const rawHeaders = res.headers();
-      for (const key of Object.keys(rawHeaders)) {
-        headers[key] = rawHeaders[key]!;
-      }
-
       data.status = res.status();
       data.statusText = res.statusText();
-      data.responseHeaders = headers;
+      data.responseHeaders = normalizeHeaders(res.headers());
       data.endTime = Date.now();
       data.duration = data.endTime - data.startTime;
 
-      // Capture response body for text-based resources, with size limit
-      const contentType = headers["content-type"] ?? "";
+      const contentType = data.responseHeaders["content-type"] ?? "";
       const isText = contentType.includes("text") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("javascript");
       if (isText) {
         res.text().then((body) => {
@@ -117,9 +106,6 @@ export class NetworkCollector {
     this.page.on("requestfailed", this.onRequestFailed);
   }
 
-  /**
-   * Return all captured requests (summary without response body).
-   */
   getRequests(resourceType?: string): Array<Omit<RequestData, "responseBody" | "requestHeaders" | "responseHeaders">> {
     const results: Array<Omit<RequestData, "responseBody" | "requestHeaders" | "responseHeaders">> = [];
     for (const data of this.requests.values()) {
@@ -130,23 +116,14 @@ export class NetworkCollector {
     return results;
   }
 
-  /**
-   * Return full details for one request including response body if available.
-   */
   getRequest(id: string): RequestData | null {
     return this.requests.get(id) ?? null;
   }
 
-  /**
-   * Reset for new navigation.
-   */
   clear(): void {
     this.requests.clear();
   }
 
-  /**
-   * Remove event listeners.
-   */
   dispose(): void {
     this.page.off("request", this.onRequest);
     this.page.off("response", this.onResponse);

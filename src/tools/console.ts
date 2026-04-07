@@ -3,33 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChromeClient } from "../chrome/client.js";
 import { formatResponse, formatError } from "../utils.js";
 import { ConsoleCollector } from "../collectors/console-collector.js";
+import { CollectorManager } from "../browser/collector-manager.js";
 
-// Per-page console collectors
-const collectors = new Map<number, ConsoleCollector>();
+const managers = new CollectorManager<ConsoleCollector>();
 
-function getCollector(client: ChromeClient): { id: number; collector: ConsoleCollector } {
-  const { id, page } = client.getPage();
-  let collector = collectors.get(id);
-  if (!collector) {
-    collector = new ConsoleCollector(page);
-    collectors.set(id, collector);
-
-    // Clean up when page closes
-    page.once("close", () => {
-      collector?.dispose();
-      collectors.delete(id);
-    });
-  }
-  return { id, collector };
-}
-
-/**
- * Register console monitoring tools on the MCP server.
- */
 export function registerConsoleTools(server: McpServer, client: ChromeClient): void {
-  /**
-   * list_console_messages — Return all captured console messages.
-   */
   server.tool(
     "list_console_messages",
     "List all captured console messages for the current page with optional type filter",
@@ -39,7 +17,7 @@ export function registerConsoleTools(server: McpServer, client: ChromeClient): v
     async ({ type }) => {
       await client.ensureBrowser();
       try {
-        const { collector } = getCollector(client);
+        const { collector } = managers.get(client, (page) => new ConsoleCollector(page));
         const messages = collector.getMessages(type);
         return formatResponse({
           count: messages.length,
@@ -51,9 +29,6 @@ export function registerConsoleTools(server: McpServer, client: ChromeClient): v
     }
   );
 
-  /**
-   * get_console_message — Return full details for a specific console message.
-   */
   server.tool(
     "get_console_message",
     "Get full details for a specific console message by ID",
@@ -63,7 +38,7 @@ export function registerConsoleTools(server: McpServer, client: ChromeClient): v
     async ({ messageId }) => {
       await client.ensureBrowser();
       try {
-        const { collector } = getCollector(client);
+        const { collector } = managers.get(client, (page) => new ConsoleCollector(page));
         const message = collector.getMessage(messageId);
         if (!message) {
           return formatError(`Message ${messageId} not found. Use list_console_messages to see available messages.`);

@@ -35,14 +35,12 @@ export class ChromeClient {
   private browser: Browser | null = null;
   private launchedByUs = false;
   private pages: Map<number, TrackedPage> = new Map();
+  private pageIdByRef = new WeakMap<Page, number>();
   private selectedPageId: number | null = null;
   private nextPageId = 1;
   private tabMutexes: Map<number, Mutex> = new Map();
   private browserMutex = new Mutex();
 
-  /**
-   * Ensure the browser is running. Connect to existing or launch new.
-   */
   async ensureBrowser(): Promise<Browser> {
     if (this.browser && this.browser.connected) {
       return this.browser;
@@ -50,7 +48,7 @@ export class ChromeClient {
 
     const profileDir = ensureProfileDir();
 
-    // Strategy 1: Try to connect to existing Chrome via DevToolsActivePort
+    // Try to connect to existing Chrome via DevToolsActivePort
     try {
       const portFile = join(profileDir, "DevToolsActivePort");
       const content = readFileSync(portFile, "utf8");
@@ -73,10 +71,9 @@ export class ChromeClient {
         return browser;
       }
     } catch {
-      // DevToolsActivePort not found or connection failed — launch new
+      // DevToolsActivePort not found or connection failed -- launch new
     }
 
-    // Strategy 2: Launch new Chrome
     const headless = process.env.CHROME_HEADLESS === "true";
     const executablePath = findChrome();
 
@@ -104,9 +101,6 @@ export class ChromeClient {
     return browser;
   }
 
-  /**
-   * Set up browser-level event listeners.
-   */
   private setupBrowserListeners(browser: Browser): void {
     browser.on("targetcreated", async (target) => {
       if (target.type() === "page") {
@@ -126,9 +120,6 @@ export class ChromeClient {
     });
   }
 
-  /**
-   * Track all pages that already exist when we connect/launch.
-   */
   private async trackExistingPages(browser: Browser): Promise<void> {
     const existingPages = await browser.pages();
     for (const page of existingPages) {
@@ -136,23 +127,17 @@ export class ChromeClient {
     }
   }
 
-  /**
-   * Track a page: assign an ID, set up stealth, dialog handler, and cleanup.
-   */
   private async trackPage(page: Page): Promise<number> {
-    // Check if this page is already tracked
-    for (const [id, tracked] of this.pages) {
-      if (tracked.page === page) {
-        return id;
-      }
+    // O(1) lookup via WeakMap instead of linear scan
+    const existingId = this.pageIdByRef.get(page);
+    if (existingId !== undefined) {
+      return existingId;
     }
 
     const pageId = this.nextPageId++;
 
-    // Apply stealth patches
     await applyStealth(page);
 
-    // Set up dialog handler
     const trackedPage: TrackedPage = { page, lastDialog: null };
 
     page.on("dialog", async (dialog: Dialog) => {
@@ -163,7 +148,6 @@ export class ChromeClient {
         handled: false,
         dialog,
       };
-      // Auto-dismiss to unblock the page
       try {
         await dialog.dismiss();
         trackedPage.lastDialog.handled = true;
@@ -172,22 +156,20 @@ export class ChromeClient {
       }
     });
 
-    // Clean up on page close
     page.on("close", () => {
       this.pages.delete(pageId);
       this.tabMutexes.delete(pageId);
       clearSnapshot(pageId);
       if (this.selectedPageId === pageId) {
-        // Select the most recent remaining page
         const ids = Array.from(this.pages.keys());
         this.selectedPageId = ids.length > 0 ? ids[ids.length - 1]! : null;
       }
     });
 
     this.pages.set(pageId, trackedPage);
+    this.pageIdByRef.set(page, pageId);
     this.tabMutexes.set(pageId, new Mutex());
 
-    // Auto-select if this is the first page
     if (this.selectedPageId === null) {
       this.selectedPageId = pageId;
     }
@@ -195,9 +177,6 @@ export class ChromeClient {
     return pageId;
   }
 
-  /**
-   * Get a specific page by ID, or the currently selected page.
-   */
   getPage(pageId?: number): { id: number; page: Page; lastDialog: DialogInfo | null } {
     if (pageId !== undefined) {
       const tracked = this.pages.get(pageId);
@@ -220,8 +199,13 @@ export class ChromeClient {
   }
 
   /**
-   * Get the tab mutex for a specific page.
+   * O(1) lookup of page ID by Page reference, using a WeakMap.
+   * Returns null if the page is not tracked.
    */
+  findPageId(page: Page): number | null {
+    return this.pageIdByRef.get(page) ?? null;
+  }
+
   getTabMutex(pageId: number): Mutex {
     let mutex = this.tabMutexes.get(pageId);
     if (!mutex) {
@@ -231,30 +215,18 @@ export class ChromeClient {
     return mutex;
   }
 
-  /**
-   * Get the browser-level mutex for structural operations.
-   */
   getBrowserMutex(): Mutex {
     return this.browserMutex;
   }
 
-  /**
-   * Get all tracked pages.
-   */
   getPages(): Map<number, TrackedPage> {
     return this.pages;
   }
 
-  /**
-   * Get the selected page ID.
-   */
   getSelectedPageId(): number | null {
     return this.selectedPageId;
   }
 
-  /**
-   * Set the selected page ID.
-   */
   setSelectedPageId(pageId: number): void {
     if (!this.pages.has(pageId)) {
       throw new Error(`Page ${pageId} not found.`);
@@ -262,16 +234,12 @@ export class ChromeClient {
     this.selectedPageId = pageId;
   }
 
-  /**
-   * Get the profile directory path.
-   */
   getProfileDir(): string {
     return getProfileDir();
   }
 
   /**
-   * Shut down the browser.
-   * If we launched it, close it. If we connected, just disconnect.
+   * If we launched Chrome, close it. If we connected, just disconnect.
    */
   async shutdown(): Promise<void> {
     if (!this.browser) return;

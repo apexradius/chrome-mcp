@@ -1,16 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChromeClient } from "../chrome/client.js";
-import { formatResponse, formatError } from "../utils.js";
+import { formatResponse, formatError, withPage } from "../utils.js";
 import { KnownDevices } from "puppeteer-core";
 
-/**
- * Register emulation tools on the MCP server.
- */
 export function registerEmulationTools(server: McpServer, client: ChromeClient): void {
-  /**
-   * emulate — Apply device emulation, user agent, color scheme, or geolocation.
-   */
   server.tool(
     "emulate",
     "Apply emulation settings: device preset, user agent, color scheme, or geolocation",
@@ -27,13 +21,9 @@ export function registerEmulationTools(server: McpServer, client: ChromeClient):
         .describe("Geolocation coordinates to emulate"),
     },
     async ({ device, userAgent, colorScheme, geolocation }) => {
-      await client.ensureBrowser();
-      const { id, page } = client.getPage();
-      const guard = await client.getTabMutex(id).acquire();
-      try {
+      return withPage(client, async ({ page }) => {
         const applied: string[] = [];
 
-        // Apply device emulation
         if (device) {
           const deviceDescriptor = KnownDevices[device as keyof typeof KnownDevices];
           if (!deviceDescriptor) {
@@ -46,13 +36,11 @@ export function registerEmulationTools(server: McpServer, client: ChromeClient):
           applied.push(`device: ${device}`);
         }
 
-        // Apply custom user agent
         if (userAgent) {
           await page.setUserAgent(userAgent);
           applied.push(`userAgent: ${userAgent}`);
         }
 
-        // Apply color scheme
         if (colorScheme) {
           await page.emulateMediaFeatures([
             { name: "prefers-color-scheme", value: colorScheme },
@@ -60,7 +48,6 @@ export function registerEmulationTools(server: McpServer, client: ChromeClient):
           applied.push(`colorScheme: ${colorScheme}`);
         }
 
-        // Apply geolocation
         if (geolocation) {
           const context = page.browserContext();
           await context.overridePermissions(page.url() || "https://example.com", [
@@ -77,21 +64,11 @@ export function registerEmulationTools(server: McpServer, client: ChromeClient):
           return formatError("No emulation settings provided. Specify at least one of: device, userAgent, colorScheme, geolocation.");
         }
 
-        return formatResponse({
-          success: true,
-          applied,
-        });
-      } catch (err) {
-        return formatError(`emulate failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+        return formatResponse({ success: true, applied });
+      });
     }
   );
 
-  /**
-   * resize_page — Resize the viewport of the current page.
-   */
   server.tool(
     "resize_page",
     "Resize the viewport of the current page to a specific width and height",
@@ -100,20 +77,10 @@ export function registerEmulationTools(server: McpServer, client: ChromeClient):
       height: z.number().describe("Viewport height in pixels"),
     },
     async ({ width, height }) => {
-      await client.ensureBrowser();
-      const { id, page } = client.getPage();
-      const guard = await client.getTabMutex(id).acquire();
-      try {
+      return withPage(client, async ({ page }) => {
         await page.setViewport({ width, height });
-        return formatResponse({
-          success: true,
-          viewport: { width, height },
-        });
-      } catch (err) {
-        return formatError(`resize_page failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+        return formatResponse({ success: true, viewport: { width, height } });
+      });
     }
   );
 }

@@ -1,66 +1,36 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChromeClient } from "../chrome/client.js";
-import { formatResponse, formatError } from "../utils.js";
+import { formatResponse, formatError, withPage, withBrowser } from "../utils.js";
 
-/**
- * Register navigation tools on the MCP server.
- */
 export function registerNavigationTools(server: McpServer, client: ChromeClient): void {
-  /**
-   * navigate — Navigate the selected page to a URL.
-   */
   server.tool(
     "navigate",
     "Navigate the selected page to a URL",
     { url: z.string().describe("The URL to navigate to") },
     async ({ url }) => {
-      await client.ensureBrowser();
-      const { id, page } = client.getPage();
-      const guard = await client.getTabMutex(id).acquire();
-      try {
+      return withPage(client, async ({ page }) => {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
         return formatResponse({ url: page.url(), title: await page.title() });
-      } catch (err) {
-        return formatError(`Navigation failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+      });
     }
   );
 
-  /**
-   * new_page — Create a new tab, optionally navigate to a URL.
-   */
   server.tool(
     "new_page",
     "Create a new browser tab, optionally navigate to a URL",
     { url: z.string().optional().describe("URL to navigate the new tab to") },
     async ({ url }) => {
-      const browser = await client.ensureBrowser();
-      const guard = await client.getBrowserMutex().acquire();
-      try {
+      return withBrowser(client, async () => {
+        const browser = await client.ensureBrowser();
         const page = await browser.newPage();
 
-        // Wait for the page to be tracked (the targetcreated listener handles it)
-        // Find the page ID that was just assigned
-        let pageId: number | null = null;
-        for (const [id, tracked] of client.getPages()) {
-          if (tracked.page === page) {
-            pageId = id;
-            break;
-          }
-        }
-
+        // Find the page ID assigned by the targetcreated listener
+        let pageId = client.findPageId(page);
         if (pageId === null) {
-          // The page may not have been tracked yet via the event; give it a moment
+          // The targetcreated event may not have fired yet
           await new Promise((resolve) => setTimeout(resolve, 100));
-          for (const [id, tracked] of client.getPages()) {
-            if (tracked.page === page) {
-              pageId = id;
-              break;
-            }
-          }
+          pageId = client.findPageId(page);
         }
 
         if (pageId === null) {
@@ -78,42 +48,26 @@ export function registerNavigationTools(server: McpServer, client: ChromeClient)
           url: page.url(),
           title: await page.title(),
         });
-      } catch (err) {
-        return formatError(`new_page failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+      });
     }
   );
 
-  /**
-   * close_page — Close a tab by page ID. Cannot close the last remaining tab.
-   */
   server.tool(
     "close_page",
     "Close a browser tab by page ID (cannot close the last tab)",
     { pageId: z.number().describe("The page ID to close") },
     async ({ pageId }) => {
-      await client.ensureBrowser();
-      const guard = await client.getBrowserMutex().acquire();
-      try {
+      return withBrowser(client, async () => {
         if (client.getPages().size <= 1) {
           return formatError("Cannot close the last remaining tab.");
         }
         const { page } = client.getPage(pageId);
         await page.close();
         return formatResponse({ success: true, message: `Page ${pageId} closed.` });
-      } catch (err) {
-        return formatError(`close_page failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+      });
     }
   );
 
-  /**
-   * list_pages — List all open tabs.
-   */
   server.tool(
     "list_pages",
     "List all open browser tabs with their IDs, URLs, and titles",
@@ -141,9 +95,6 @@ export function registerNavigationTools(server: McpServer, client: ChromeClient)
     }
   );
 
-  /**
-   * select_page — Set the active tab by page ID.
-   */
   server.tool(
     "select_page",
     "Set the active/selected browser tab by page ID",
@@ -161,9 +112,6 @@ export function registerNavigationTools(server: McpServer, client: ChromeClient)
     }
   );
 
-  /**
-   * wait_for — Wait for text to appear or disappear on the page.
-   */
   server.tool(
     "wait_for",
     "Wait for text to appear or disappear on the page",
@@ -173,10 +121,7 @@ export function registerNavigationTools(server: McpServer, client: ChromeClient)
       timeout: z.number().default(30000).describe("Timeout in milliseconds"),
     },
     async ({ text, state, timeout }) => {
-      await client.ensureBrowser();
-      const { id, page } = client.getPage();
-      const guard = await client.getTabMutex(id).acquire();
-      try {
+      return withPage(client, async ({ page }) => {
         if (state === "appear") {
           await page.waitForFunction(
             (t: string) => document.body?.innerText?.includes(t),
@@ -191,11 +136,7 @@ export function registerNavigationTools(server: McpServer, client: ChromeClient)
           );
         }
         return formatResponse({ success: true, text, state });
-      } catch (err) {
-        return formatError(`wait_for timed out: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        guard.dispose();
-      }
+      });
     }
   );
 }

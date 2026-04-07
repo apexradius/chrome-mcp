@@ -5,14 +5,18 @@ export interface SnapshotResult {
   uidMap: Map<string, SerializedAXNode>;
 }
 
+export interface CaptureOptions {
+  interestingOnly?: boolean;
+}
+
 /**
  * Capture an accessibility snapshot of the page, assign UIDs to each node,
  * and format as Playwright-style YAML text.
  */
-export async function captureSnapshot(page: Page): Promise<SnapshotResult> {
+export async function captureSnapshot(page: Page, options?: CaptureOptions): Promise<SnapshotResult> {
   const tree = await page.accessibility.snapshot({
     includeIframes: true,
-    interestingOnly: true,
+    interestingOnly: options?.interestingOnly ?? true,
   });
 
   const uidMap = new Map<string, SerializedAXNode>();
