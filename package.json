@@ -1,0 +1,53 @@
+{
+  "name": "@apexradius/chrome-mcp",
+  "version": "1.0.0",
+  "description": "A Model Context Protocol (MCP) server for Chrome — giving Claude direct browser control via the Chrome DevTools Protocol with built-in stealth, per-tab concurrency, and persistent profiles.",
+  "keywords": [
+    "chrome",
+    "devtools",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "anthropic",
+    "ai",
+    "browser-automation",
+    "puppeteer"
+  ],
+  "author": "Apex Radius Labs",
+  "license": "MIT",
+  "homepage": "https://github.com/apexradius/chrome-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apexradius/chrome-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/apexradius/chrome-mcp/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "chrome-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "puppeteer-core": "^24.40.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
