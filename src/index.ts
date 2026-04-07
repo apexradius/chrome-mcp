@@ -11,6 +11,7 @@ import { ChromeClient } from "./chrome/client.js";
 import { registerNavigationTools } from "./tools/navigation.js";
 import { registerInspectionTools } from "./tools/inspection.js";
 import { registerInteractionTools } from "./tools/interaction.js";
+import { registerPhase4Tools } from "./tools/_phase4_registry.js";
 
 const server = new McpServer({
   name: "@apexradius/chrome-mcp",
@@ -23,6 +24,7 @@ const chrome = new ChromeClient();
 registerNavigationTools(server, chrome);
 registerInspectionTools(server, chrome);
 registerInteractionTools(server, chrome);
+registerPhase4Tools(server, chrome);
 
 async function main() {
   const transport = new StdioServerTransport();
