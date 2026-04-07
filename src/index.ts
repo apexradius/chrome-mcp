@@ -10,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ChromeClient } from "./chrome/client.js";
 import { registerNavigationTools } from "./tools/navigation.js";
 import { registerInspectionTools } from "./tools/inspection.js";
+import { registerInteractionTools } from "./tools/interaction.js";
 
 const server = new McpServer({
   name: "@apexradius/chrome-mcp",
@@ -21,6 +22,7 @@ const chrome = new ChromeClient();
 // Register tool modules
 registerNavigationTools(server, chrome);
 registerInspectionTools(server, chrome);
+registerInteractionTools(server, chrome);
 
 async function main() {
   const transport = new StdioServerTransport();
