@@ -147,6 +147,79 @@ Zero flags. Zero warnings.
 | `CHROME_PROFILE_DIR` | No | `~/.config/apexradius/chrome-mcp/profile` |
 | `CHROME_HEADLESS` | No | `false` (headed mode) |
 
+## Critical Implementation Patterns (from chrome-devtools-mcp source analysis)
+
+### Snapshot & UID Mapping
+- Use `page.accessibility.snapshot({ includeIframes: true, interestingOnly: !verbose })` (Puppeteer's built-in, not raw CDP — the existing MCP uses this too)
+- Assign UIDs via `loaderId_backendNodeId` stable keys — reuses UIDs across snapshots when DOM is stable
+- Store `idToNode: Map<string, AXNode>` for O(1) UID lookup
+- Resolve UID → ElementHandle via `node.elementHandle()` (Puppeteer AXNode method)
+- Convert ElementHandle → Locator via `.asLocator()` for auto-waiting interactions
+
+### Mutex (37 lines — keep it simple)
+```typescript
+class Mutex {
+  #locked = false;
+  #queue: Array<() => void> = [];
+  async acquire(): Promise<{ dispose: () => void }> {
+    if (!this.#locked) { this.#locked = true; return { dispose: () => this.#release() }; }
+    await new Promise<void>(r => this.#queue.push(r));
+    return { dispose: () => this.#release() };
+  }
+  #release() {
+    const next = this.#queue.shift();
+    if (!next) { this.#locked = false; return; }
+    next();
+  }
+}
+```
+
+### Chrome Launch (key options)
+```typescript
+puppeteerCore.launch({
+  executablePath: findChrome(),
+  userDataDir: profileDir,
+  defaultViewport: null,
+  pipe: true,
+  headless: false,
+  args: ['--hide-crash-restore-bubble'],
+  ignoreDefaultArgs: ['--enable-automation', '--disable-extensions', '--use-mock-keychain', '--disable-sync'],
+})
+```
+
+### Connect to Existing Chrome
+```typescript
+// Read DevToolsActivePort from profile dir
+const portFile = path.join(profileDir, 'DevToolsActivePort');
+const [port, wsPath] = (await fs.readFile(portFile, 'utf8')).split('\n');
+const browser = await puppeteerCore.connect({
+  browserWSEndpoint: `ws://127.0.0.1:${port.trim()}${wsPath.trim()}`,
+  defaultViewport: null,
+});
+```
+
+### Click/Fill Pattern
+```typescript
+const handle = await page.getElementByUid(uid);
+try {
+  await handle.asLocator().click({ count: dblClick ? 2 : 1 });
+} finally {
+  handle.dispose(); // ALWAYS dispose handles
+}
+```
+
+### Screenshot Strategy
+- <2MB: return as Base64 image attachment
+- >=2MB: save to temp file, return path
+- Support PNG (no quality), JPEG/WebP (with quality param)
+- `optimizeForSpeed: true` for faster encoding
+
+### Dialog Handling
+- Store one dialog per page as instance variable
+- Register `page.on('dialog')` in page constructor
+- Clear state after handling
+- Unregister listener in `dispose()`
+
 ## Verification
 
 After each phase:
