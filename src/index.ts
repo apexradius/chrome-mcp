@@ -8,6 +8,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ChromeClient } from "./chrome/client.js";
+import { registerNavigationTools } from "./tools/navigation.js";
+import { registerInspectionTools } from "./tools/inspection.js";
 
 const server = new McpServer({
   name: "@apexradius/chrome-mcp",
@@ -16,10 +18,9 @@ const server = new McpServer({
 
 const chrome = new ChromeClient();
 
-// Tool modules will be registered here in Phase 2+
-// e.g., registerNavigationTools(server, chrome);
-// e.g., registerInspectionTools(server, chrome);
-// e.g., registerInteractionTools(server, chrome);
+// Register tool modules
+registerNavigationTools(server, chrome);
+registerInspectionTools(server, chrome);
 
 async function main() {
   const transport = new StdioServerTransport();
